@@ -463,7 +463,6 @@ static void* _video_source_usb_capture_thread(void* arg)
                     if (bInNAL && iAccumulatedSize > 4)
                     {
                         u8 uNALType = uAccumulatedBuffer[4] & 0x1F;
-                        bool bIsKeyframe = (uNALType == 5);
                         bool bIsSlice = (uNALType == 1 || uNALType == 5);
                         
                         _ring_buffer_write(uAccumulatedBuffer, iAccumulatedSize,
@@ -650,7 +649,7 @@ void video_source_usb_clear_input_buffers()
 {
     log_line("[VideoSourceUSB] Clearing input buffers");
     _ring_buffer_clear();
-    s_ParserH264USB.reset();
+    s_ParserH264USB.init();
 }
 
 bool video_source_usb_last_read_is_single_nal()

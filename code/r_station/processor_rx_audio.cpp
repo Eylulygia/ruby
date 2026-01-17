@@ -311,7 +311,7 @@ void _open_audio_pipes()
    }
    log_line("[AudioRx] Player pipe FIFO default size: %d bytes", fcntl(s_fPipeAudioPlayerOutput, F_GETPIPE_SZ));
    
-   s_fPipeAudioPlayerQueueRead = open(FIFO_RUBY_AUDIO_QUEUE, O_CREAT | O_RDONLY | O_NONBLOCK);
+   s_fPipeAudioPlayerQueueRead = open(FIFO_RUBY_AUDIO_QUEUE, O_CREAT | O_RDONLY | O_NONBLOCK, 0666);
    if ( s_fPipeAudioPlayerQueueRead <= 0 )
    {
       log_error_and_alarm("[AudioRx] Failed to open audio pipe queue read endpoint: %s",FIFO_RUBY_AUDIO_QUEUE);
@@ -319,7 +319,7 @@ void _open_audio_pipes()
    }
    log_line("[AudioRx] Opened successfully audio pipe queue read endpoint: %s", FIFO_RUBY_AUDIO_QUEUE);
 
-   s_fPipeAudioPlayerQueueWrite = open(FIFO_RUBY_AUDIO_QUEUE, O_CREAT | O_WRONLY | O_NONBLOCK);
+   s_fPipeAudioPlayerQueueWrite = open(FIFO_RUBY_AUDIO_QUEUE, O_CREAT | O_WRONLY | O_NONBLOCK, 0666);
    if ( s_fPipeAudioPlayerQueueWrite <= 0 )
    {
       log_error_and_alarm("[AudioRx] Failed to open audio pipe queue write endpoint: %s",FIFO_RUBY_AUDIO_QUEUE);
@@ -327,7 +327,7 @@ void _open_audio_pipes()
    }
    log_line("[AudioRx] Opened successfully audio pipe queue write endpoint: %s", FIFO_RUBY_AUDIO_QUEUE);
 
-   s_fPipeAudioBufferRead = open(FIFO_RUBY_AUDIO_BUFF, O_CREAT | O_RDONLY | O_NONBLOCK);
+   s_fPipeAudioBufferRead = open(FIFO_RUBY_AUDIO_BUFF, O_CREAT | O_RDONLY | O_NONBLOCK, 0666);
    if ( s_fPipeAudioBufferRead <= 0 )
    {
       log_error_and_alarm("[AudioRx] Failed to open audio pipe buffer read endpoint: %s",FIFO_RUBY_AUDIO_BUFF);
@@ -335,7 +335,7 @@ void _open_audio_pipes()
    }
    log_line("[AudioRx] Opened successfully audio pipe buffer read endpoint: %s", FIFO_RUBY_AUDIO_BUFF);
 
-   s_fPipeAudioBufferWrite = open(FIFO_RUBY_AUDIO_BUFF, O_CREAT | O_WRONLY | O_NONBLOCK);
+   s_fPipeAudioBufferWrite = open(FIFO_RUBY_AUDIO_BUFF, O_CREAT | O_WRONLY | O_NONBLOCK, 0666);
    if ( s_fPipeAudioBufferWrite <= 0 )
    {
       log_error_and_alarm("[AudioRx] Failed to open audio pipe buffer write endpoint: %s",FIFO_RUBY_AUDIO_BUFF);

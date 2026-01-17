@@ -38,6 +38,11 @@
 #include "hardware_i2c.h"
 #include "../common/string_utils.h"
 
+#ifdef __linux__
+#include <linux/videodev2.h>
+#include <sys/ioctl.h>
+#endif
+
 #include <ctype.h>
 #include <pthread.h>
 

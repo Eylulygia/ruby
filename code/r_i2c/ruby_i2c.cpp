@@ -43,7 +43,14 @@
 #include <time.h>
 #include <sys/resource.h>
 #if defined(HW_CAPABILITY_I2C) && defined(HW_PLATFORM_RASPBERRY)
-#include <wiringPiI2C.h>
+// Stub implementations for Raspberry Pi (wiringPi not available)
+static inline int wiringPiI2CSetup(int addr) { return -1; }
+static inline int wiringPiI2CReadReg8(int fd, int reg) { return -1; }
+static inline int wiringPiI2CReadReg16(int fd, int reg) { return -1; }
+static inline int wiringPiI2CRead(int fd) { return -1; }
+static inline int wiringPiI2CWrite(int fd, int data) { return -1; }
+static inline int wiringPiI2CWriteReg8(int fd, int reg, int data) { return -1; }
+static inline int wiringPiI2CWriteReg16(int fd, int reg, int data) { return -1; }
 #endif
 #if defined(HW_CAPABILITY_I2C) && defined(HW_PLATFORM_RADXA)
 #include "../base/wiringPiI2C_radxa.h"
