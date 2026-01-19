@@ -129,8 +129,10 @@ void video_sources_start_capture()
    int iInitialKeyframeMs = 0;
    if ( g_pCurrentModel->isActiveCameraCSICompatible() || g_pCurrentModel->isActiveCameraVeye() )
       uInitialVideoBitrate = video_source_csi_start_program(s_uLastSetVideoBitrateBPS, s_iLastSetVideoKeyframeMs, &iInitialKeyframeMs);
-   if ( g_pCurrentModel->isActiveCameraOpenIPC() )
+   else if ( g_pCurrentModel->isActiveCameraOpenIPC() )
       uInitialVideoBitrate = video_source_majestic_start_program(s_uLastSetVideoBitrateBPS, s_iLastSetVideoKeyframeMs, s_iLastSetIPQDelta, &iInitialKeyframeMs);
+   else if ( g_pCurrentModel->isActiveCameraUSB() )
+      uInitialVideoBitrate = video_source_usb_start_program(s_uLastSetVideoBitrateBPS, s_iLastSetVideoKeyframeMs, s_iLastSetIPQDelta, &iInitialKeyframeMs);
 
    s_uLastSetVideoBitrateBPS = uInitialVideoBitrate;
    s_iLastSetVideoKeyframeMs = iInitialKeyframeMs;
@@ -155,6 +157,8 @@ void video_sources_stop_capture()
 
    if ( (NULL != g_pCurrentModel) && g_pCurrentModel->isActiveCameraOpenIPC() )
       video_source_majestic_stop_program();
+   else if ( (NULL != g_pCurrentModel) && g_pCurrentModel->isActiveCameraUSB() )
+      video_source_usb_stop_program();
    else
       video_source_csi_stop_program();
 
@@ -175,6 +179,14 @@ bool video_sources_is_caputure_process_running()
       if ( NULL != strstr(szOutput, "majestic") )
          return true;
    }
+   else if ( (NULL != g_pCurrentModel) && g_pCurrentModel->isActiveCameraUSB() )
+   {
+      // Check if FFmpeg process is running for USB camera
+      szOutput[0] = 0;
+      hw_execute_bash_command("ps -aef | grep ffmpeg | grep v4l2", szOutput);
+      if ( NULL != strstr(szOutput, "ffmpeg") )
+         return true;
+   }
    else
    {
       szOutput[0] = 0;
@@ -189,6 +201,8 @@ u32 video_sources_get_capture_start_time()
 {
    if ( g_pCurrentModel->isActiveCameraCSICompatible() || g_pCurrentModel->isActiveCameraVeye() )
       return video_source_cs_get_program_start_time();
+   if ( g_pCurrentModel->isActiveCameraUSB() )
+      return video_source_usb_get_program_start_time();
    return video_source_majestic_get_program_start_time(); 
 }
 
@@ -198,7 +212,9 @@ void video_sources_flush_discard_all_pending_data()
       
    if ( g_pCurrentModel->isActiveCameraOpenIPC() )
       video_source_majestic_clear_input_buffers();
-   if ( g_pCurrentModel->isActiveCameraCSICompatible() || g_pCurrentModel->isActiveCameraVeye() )
+   else if ( g_pCurrentModel->isActiveCameraUSB() )
+      video_source_usb_clear_input_buffers();
+   else if ( g_pCurrentModel->isActiveCameraCSICompatible() || g_pCurrentModel->isActiveCameraVeye() )
       video_source_csi_flush_discard();
    log_line("[VideoSources] Done clear video pipes.");
 }
@@ -376,6 +392,84 @@ s_iDbgReadTryCount++;
 
          iTotalBytes += iReadSize;
          iNumUDPPackets++;
+
+         if ( uNALType == 1 )
+            uNALPresenceFlags |= VIDEO_STATUS_FLAGS2_IS_NAL_P;
+         if ( uNALType == 5 )
+            uNALPresenceFlags |= VIDEO_STATUS_FLAGS2_IS_NAL_I;
+         if ( parser_h264_is_signaling_nal(uNALType) )
+            uNALPresenceFlags |= VIDEO_STATUS_FLAGS2_IS_NAL_O;
+
+         bEndOfFrame = false;
+         if ( bEnd && (iTotalBytes > 0) )
+         if ( ! parser_h264_is_signaling_nal(uNALType) )
+            bEndOfFrame = true;
+         if ( NULL != g_pVideoTxBuffers )
+            g_pVideoTxBuffers->appendDataToCurrentFrame(pVideoData, iReadSize, uNALPresenceFlags, bEndOfFrame, uTimeDataAvailable);
+
+         if ( bEndOfFrame )
+         {
+            s_bLastCameraReadWasEndOfFrame = true;
+            break;
+         }
+      } while ( ! bEndOfFrame );
+
+      if ( iTotalBytes > 100 )
+      {
+         s_uLastVideoSourcesStreamDataAvailable = g_TimeNow;
+         s_uTotalVideoSourceReadBytes += (u32)iTotalBytes;
+         if ( NULL != pbOutEndOfFrameDetected )
+            *pbOutEndOfFrameDetected = bEndOfFrame;
+      }
+   }
+   else if ( g_pCurrentModel->isActiveCameraUSB() )
+   {
+      // USB Thermal Camera frame reading
+      int iNumRetries = 50;
+      bool bEndOfFrame = false;
+      do
+      {
+         u32 uTimeRead = 0;
+         u32* pTimeRead = &uTimeRead;
+         if ( 0 != uTimeDataAvailable )
+            pTimeRead = NULL;
+         u8* pVideoData = video_source_usb_read(&iReadSize, true, pTimeRead);
+
+         if ( (NULL == pVideoData) || (iReadSize <= 0) )
+         {
+            if ( 0 == iTotalBytes )
+               break;
+            iNumRetries--;
+            if ( (iNumRetries < 0) || (iTotalBytes == 0) )
+               break;
+            continue;
+         }
+         if ( 0 == uTimeDataAvailable )
+            uTimeDataAvailable = uTimeRead;
+
+         bool bEnd = video_source_usb_last_read_is_end_nal();
+         u32 uNALType = video_source_usb_get_last_nal_type();
+
+         if ( bEnd && (! parser_h264_is_signaling_nal(uNALType)) )
+            s_iTempFramesCount++;
+
+         if ( (! parser_h264_is_signaling_nal(uNALType)) && video_source_usb_last_read_is_start_nal() )
+         if ( s_bLastCameraReadWasEndOfFrame )
+         {
+            u32 uDeltaTime = g_TimeNow - s_uTimeLastCameraReadStartOfFrame;
+            s_uTimeLastCameraReadStartOfFrame = g_TimeNow;
+            s_bLastCameraReadWasEndOfFrame = false;
+            g_pVideoTxBuffers->setLastFrameDistanceMs(uDeltaTime);
+            if ( g_TimeNow >= s_uTimeLastCameraStartSecond + 999 )
+            {
+               g_pVideoTxBuffers->setCurrentRealFPS(s_iCumulativeFramesCount);
+               s_uTimeLastCameraStartSecond = g_TimeNow;
+               s_iCumulativeFramesCount = 0;
+            }
+            s_iCumulativeFramesCount++;
+         }
+
+         iTotalBytes += iReadSize;
 
          if ( uNALType == 1 )
             uNALPresenceFlags |= VIDEO_STATUS_FLAGS2_IS_NAL_P;
@@ -879,6 +973,8 @@ bool video_sources_periodic_health_checks()
       return video_source_csi_periodic_health_checks();
    if ( g_pCurrentModel->isActiveCameraOpenIPC() )
       return video_source_majestic_periodic_health_checks();
+   if ( g_pCurrentModel->isActiveCameraUSB() )
+      return video_source_usb_periodic_health_checks();
 
    return false;
 }

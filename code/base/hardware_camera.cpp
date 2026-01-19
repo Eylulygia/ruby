@@ -310,6 +310,39 @@ u32 _hardware_detect_camera_type()
    }
    #endif
 
+   // Check for USB thermal camera (only if no camera detected yet and not on special platforms)
+   #if defined (HW_PLATFORM_RASPBERRY)
+   if ( s_bHardwareHasCamera == 0 )
+   {
+      // Check for USB video devices
+      if ( access("/dev/video0", R_OK) == 0 )
+      {
+         int fd = open("/dev/video0", O_RDWR | O_NONBLOCK);
+         if ( fd >= 0 )
+         {
+            struct v4l2_capability cap;
+            memset(&cap, 0, sizeof(cap));
+            if ( ioctl(fd, VIDIOC_QUERYCAP, &cap) >= 0 )
+            {
+               if ( cap.capabilities & V4L2_CAP_VIDEO_CAPTURE )
+               {
+                  // Check if it's a USB device (not bcm2835-v4l2 which is CSI)
+                  if ( NULL == strstr((char*)cap.driver, "bcm2835") &&
+                       NULL == strstr((char*)cap.driver, "mmal") )
+                  {
+                     log_line("[Hardware] USB camera detected: %s (%s)", cap.card, cap.driver);
+                     s_bHardwareHasCamera = 1;
+                     s_uHardwareCameraType = CAMERA_TYPE_USB_THERMAL;
+                     s_iHardwareCameraI2CBus = -1;
+                  }
+               }
+            }
+            close(fd);
+         }
+      }
+   }
+   #endif
+
    if ( s_bHardwareHasCamera == 0 )
       log_line("[Hardware] No camera detected.");
    else

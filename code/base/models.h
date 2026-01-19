@@ -687,6 +687,7 @@ class Model
       bool isActiveCameraCSI();
       bool isActiveCameraOpenIPC();
       bool isActiveCameraSensorOpenIPCIMX415();
+      bool isActiveCameraUSB();
 
       void log_camera_profiles_differences(camera_profile_parameters_t* pCamProfile1, camera_profile_parameters_t* pCamProfile2, int iProfileIndex1, int iProfileIndex2);
       bool isVideoLinkFixedOneWay();

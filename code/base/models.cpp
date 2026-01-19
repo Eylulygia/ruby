@@ -5150,6 +5150,23 @@ bool Model::isActiveCameraSensorOpenIPCIMX415()
    return false;
 }
 
+bool Model::isActiveCameraUSB()
+{
+   if ( iCameraCount <= 0 )
+      return false;
+
+   if ( (iCurrentCamera < 0) || (iCurrentCamera >= iCameraCount) )
+      return false;
+
+   int iCameraType = camera_params[iCurrentCamera].iCameraType;
+   if ( 0 != camera_params[iCurrentCamera].iForcedCameraType )
+      iCameraType = camera_params[iCurrentCamera].iForcedCameraType;
+
+   if ( iCameraType == CAMERA_TYPE_USB_THERMAL )
+      return true;
+   return false;
+}
+
 
 void Model::log_camera_profiles_differences(camera_profile_parameters_t* pCamProfile1, camera_profile_parameters_t* pCamProfile2, int iProfileIndex1, int iProfileIndex2)
 {
