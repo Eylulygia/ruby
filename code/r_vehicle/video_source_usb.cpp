@@ -88,6 +88,9 @@ static u32 s_uDebugUSBInputReads = 0;
 static u32 s_uTimeLastHealthCheck = 0;
 static int s_iConsecutiveReadErrors = 0;
 
+// Detected USB camera device path
+static char s_szDetectedUSBDevice[64] = {0};
+
 // ============ RING BUFFER FUNCTIONS ============
 
 static void _ring_buffer_init()
@@ -171,10 +174,92 @@ static void _ring_buffer_clear()
 
 // ============ HELPER FUNCTIONS ============
 
+// Check if a device is a CSI camera (not USB)
+static bool _is_csi_camera(const char* szDriver)
+{
+    if (NULL == szDriver)
+        return false;
+    
+    // Raspberry Pi CSI camera drivers
+    if (strstr(szDriver, "bcm2835") != NULL)
+        return true;
+    if (strstr(szDriver, "mmal") != NULL)
+        return true;
+    if (strstr(szDriver, "unicam") != NULL)
+        return true;
+    
+    return false;
+}
+
+// Find first available USB/UVC camera (non-CSI)
+static const char* _find_usb_camera_device()
+{
+#ifdef __linux__
+    log_line("[VideoSourceUSB] Scanning for USB cameras...");
+    
+    for (int i = 0; i < 10; i++)
+    {
+        char szDevPath[32];
+        snprintf(szDevPath, sizeof(szDevPath), "/dev/video%d", i);
+        
+        int fd = open(szDevPath, O_RDWR | O_NONBLOCK);
+        if (fd < 0)
+            continue;
+        
+        struct v4l2_capability cap;
+        memset(&cap, 0, sizeof(cap));
+        
+        if (ioctl(fd, VIDIOC_QUERYCAP, &cap) < 0)
+        {
+            close(fd);
+            continue;
+        }
+        
+        // Must support video capture
+        if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE))
+        {
+            close(fd);
+            continue;
+        }
+        
+        // Skip CSI cameras
+        if (_is_csi_camera((const char*)cap.driver))
+        {
+            log_line("[VideoSourceUSB] Skipping CSI camera at %s (driver: %s)", 
+                     szDevPath, cap.driver);
+            close(fd);
+            continue;
+        }
+        
+        // Found USB camera!
+        log_line("[VideoSourceUSB] Found USB camera at %s", szDevPath);
+        log_line("[VideoSourceUSB]   Card: %s", cap.card);
+        log_line("[VideoSourceUSB]   Driver: %s", cap.driver);
+        log_line("[VideoSourceUSB]   Bus: %s", cap.bus_info);
+        
+        close(fd);
+        
+        // Store in static buffer
+        strncpy(s_szDetectedUSBDevice, szDevPath, sizeof(s_szDetectedUSBDevice) - 1);
+        s_szDetectedUSBDevice[sizeof(s_szDetectedUSBDevice) - 1] = '\0';
+        
+        return s_szDetectedUSBDevice;
+    }
+    
+    log_line("[VideoSourceUSB] No USB camera found");
+#endif
+    return NULL;
+}
+
 static bool _video_source_usb_check_device_available(const char* szDevicePath)
 {
-    if (NULL == szDevicePath)
-        szDevicePath = USB_CAMERA_DEFAULT_DEVICE;
+    // If no device specified, try to find one dynamically
+    if (NULL == szDevicePath || szDevicePath[0] == '\0')
+    {
+        szDevicePath = _find_usb_camera_device();
+        if (NULL == szDevicePath)
+            return false;
+    }
         
 #ifdef __linux__
     int fd = open(szDevicePath, O_RDWR | O_NONBLOCK);
@@ -202,7 +287,15 @@ static bool _video_source_usb_check_device_available(const char* szDevicePath)
         return false;
     }
     
-    log_line("[VideoSourceUSB] Found V4L2 device: %s (%s)", cap.card, cap.driver);
+    // Reject CSI cameras
+    if (_is_csi_camera((const char*)cap.driver))
+    {
+        log_line("[VideoSourceUSB] Device %s is a CSI camera, not USB", szDevicePath);
+        close(fd);
+        return false;
+    }
+    
+    log_line("[VideoSourceUSB] Validated USB device: %s (%s)", cap.card, cap.driver);
     close(fd);
     return true;
 #else
@@ -277,13 +370,16 @@ static pid_t _start_ffmpeg_process(int* pPipeReadFd)
         if (iKeyframeFrames < 1) iKeyframeFrames = iFPS * 2; // Default 2 seconds
         snprintf(szKeyframe, sizeof(szKeyframe), "%d", iKeyframeFrames);
         
-        // Execute FFmpeg
+        // Execute FFmpeg with detected USB device
+        const char* szDevicePath = (s_szDetectedUSBDevice[0] != '\0') ? 
+                                    s_szDetectedUSBDevice : USB_CAMERA_DEFAULT_DEVICE;
+        
         execlp("ffmpeg", "ffmpeg",
                "-f", "v4l2",
                "-input_format", "mjpeg",   // Most USB cameras support MJPEG
                "-video_size", szResolution,
                "-framerate", szFPS,
-               "-i", USB_CAMERA_DEFAULT_DEVICE,
+               "-i", szDevicePath,
                "-c:v", "libx264",
                "-preset", "ultrafast",
                "-tune", "zerolatency",
