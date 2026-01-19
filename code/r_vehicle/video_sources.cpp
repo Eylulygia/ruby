@@ -127,12 +127,23 @@ void video_sources_start_capture()
    log_line("[VideoSources] Current camera type: %s", str_get_hardware_camera_type_string(g_pCurrentModel->getActiveCameraType()));
    u32 uInitialVideoBitrate = 0;
    int iInitialKeyframeMs = 0;
+   
+   // ============ TEST MODE: Force USB Camera ============
+   // TODO: Remove this block after testing, restore original if-else
+   #define USB_CAMERA_TEST_MODE 1
+   #if USB_CAMERA_TEST_MODE
+   log_line("[VideoSources] TEST MODE: Forcing USB camera (CSI disabled)");
+   uInitialVideoBitrate = video_source_usb_start_program(s_uLastSetVideoBitrateBPS, s_iLastSetVideoKeyframeMs, s_iLastSetIPQDelta, &iInitialKeyframeMs);
+   #else
+   // Original camera selection logic
    if ( g_pCurrentModel->isActiveCameraCSICompatible() || g_pCurrentModel->isActiveCameraVeye() )
       uInitialVideoBitrate = video_source_csi_start_program(s_uLastSetVideoBitrateBPS, s_iLastSetVideoKeyframeMs, &iInitialKeyframeMs);
    else if ( g_pCurrentModel->isActiveCameraOpenIPC() )
       uInitialVideoBitrate = video_source_majestic_start_program(s_uLastSetVideoBitrateBPS, s_iLastSetVideoKeyframeMs, s_iLastSetIPQDelta, &iInitialKeyframeMs);
    else if ( g_pCurrentModel->isActiveCameraUSB() )
       uInitialVideoBitrate = video_source_usb_start_program(s_uLastSetVideoBitrateBPS, s_iLastSetVideoKeyframeMs, s_iLastSetIPQDelta, &iInitialKeyframeMs);
+   #endif
+   // ============ END TEST MODE ============
 
    s_uLastSetVideoBitrateBPS = uInitialVideoBitrate;
    s_iLastSetVideoKeyframeMs = iInitialKeyframeMs;
@@ -155,12 +166,18 @@ void video_sources_stop_capture()
 
    signal_start_long_op();
 
+   // ============ TEST MODE: Force USB Camera ============
+   #if USB_CAMERA_TEST_MODE
+   video_source_usb_stop_program();
+   #else
    if ( (NULL != g_pCurrentModel) && g_pCurrentModel->isActiveCameraOpenIPC() )
       video_source_majestic_stop_program();
    else if ( (NULL != g_pCurrentModel) && g_pCurrentModel->isActiveCameraUSB() )
       video_source_usb_stop_program();
    else
       video_source_csi_stop_program();
+   #endif
+   // ============ END TEST MODE ============
 
    signal_end_long_op();
 
@@ -209,13 +226,20 @@ u32 video_sources_get_capture_start_time()
 void video_sources_flush_discard_all_pending_data()
 {
    log_line("[VideoSources] Clear video pipes...");
-      
+   
+   // ============ TEST MODE: Force USB Camera ============
+   #if USB_CAMERA_TEST_MODE
+   video_source_usb_clear_input_buffers();
+   #else
    if ( g_pCurrentModel->isActiveCameraOpenIPC() )
       video_source_majestic_clear_input_buffers();
    else if ( g_pCurrentModel->isActiveCameraUSB() )
       video_source_usb_clear_input_buffers();
    else if ( g_pCurrentModel->isActiveCameraCSICompatible() || g_pCurrentModel->isActiveCameraVeye() )
       video_source_csi_flush_discard();
+   #endif
+   // ============ END TEST MODE ============
+   
    log_line("[VideoSources] Done clear video pipes.");
 }
 
@@ -247,6 +271,13 @@ s_iDbgReadTryCount++;
 
    if ( NULL != pbOutEndOfFrameDetected )
       *pbOutEndOfFrameDetected = false;
+
+   // ============ TEST MODE: Force USB Camera ============
+   #if USB_CAMERA_TEST_MODE
+   // Jump directly to USB reading (search for "USB Thermal Camera frame reading" below)
+   goto usb_read_section;
+   #endif
+   // ============ END TEST MODE ============
 
    if ( g_pCurrentModel->isActiveCameraCSICompatible() || g_pCurrentModel->isActiveCameraVeye() )
    {
@@ -424,6 +455,7 @@ s_iDbgReadTryCount++;
    }
    else if ( g_pCurrentModel->isActiveCameraUSB() )
    {
+usb_read_section:  // TEST MODE label
       // USB Thermal Camera frame reading
       int iNumRetries = 50;
       bool bEndOfFrame = false;
